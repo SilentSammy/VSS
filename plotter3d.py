@@ -247,3 +247,41 @@ class BoardPlotter3D:
     def close(self):
         """Close the plot window."""
         plt.close(self.fig)
+
+if __name__ == "__main__":
+    import cv2
+    from board_est import BoardEstimator
+    from board_config import board_config
+    from cam_config import global_cam
+    
+    be = BoardEstimator(
+        board_config=board_config,
+        K=global_cam.K,
+        D=global_cam.D
+    )
+    
+    plotter = BoardPlotter3D(
+        board_config,
+        axis_limit=0.5,
+        # camera_at_origin=True,
+        camera_at_origin=False,
+    )
+    
+    while True:
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+    
+        # Get frame
+        frame = global_cam.get_frame()
+        drawing_frame = frame.copy()
+    
+        # Estimate
+        res = be.get_board_transform(frame, drawing_frame=drawing_frame)
+    
+        if res is not None:
+            board_T, _ = res
+            plotter.update(board_T)
+    
+        # Display
+        cv2.imshow("Camera", drawing_frame)
+        cv2.setWindowProperty("Camera", cv2.WND_PROP_TOPMOST, 1)
