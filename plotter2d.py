@@ -3,7 +3,8 @@ import matplotlib
 import numpy as np
 from board_config import board_config_letter
 from board_est import BoardEstimator
-from ball_det import BallDetector
+from obj_det import BallDetector
+from obj_loc import ObjectLocalizer
 from cam_config import global_cam
 
 matplotlib.use('TkAgg')
@@ -97,7 +98,7 @@ if __name__ == "__main__":
     
     # Setup
     be = BoardEstimator(board_config_letter, K=global_cam.K, D=global_cam.D, rotate_180=True)
-    ball_detector = BallDetector()
+    ball_localizer = ObjectLocalizer(BallDetector(), be, height=0.02)
     plotter = BoardPlotter2D(board_config_letter, update_interval=5)
     
     while True:
@@ -116,20 +117,11 @@ if __name__ == "__main__":
         ball_pos = None
         if result is not None:
             board_T, pnp_result = result
+            ball_pos = ball_localizer.localize(frame, pnp_result, drawing_frame)
             
-            # Detect ball
-            contour = ball_detector.detect(frame, drawing_frame=drawing_frame)
-            if contour is not None:
-                centroid = ball_detector.get_centroid(contour)
-                if centroid is not None:
-                    # Project to board coordinates
-                    ball_pos = be.project_point_to_board(pnp_result, centroid, frame.shape)
-                    
-                    # Draw on frame
-                    cx, cy = centroid
-                    cv2.circle(drawing_frame, (cx, cy), 5, (0, 0, 255), -1)
-                    cv2.putText(drawing_frame, f"Ball: ({ball_pos[0]:.3f}, {ball_pos[1]:.3f})m", 
-                               (cx + 10, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            if ball_pos is not None:
+                cv2.putText(drawing_frame, f"Ball: ({ball_pos[0]:.3f}, {ball_pos[1]:.3f})m", 
+                           (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         
         # Update plotter
         plotter.update(ball_pos)

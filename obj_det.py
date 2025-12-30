@@ -2,16 +2,42 @@ import cv2
 import numpy as np
 
 
-class BallDetector:
+class ObjectDetector:
+    """Base class for object detection."""
+    
+    def _detect(self, frame, drawing_frame=None):
+        """Detect object and return contour (numpy array) or None."""
+        pass
+    
+    def detect(self, frame, drawing_frame=None):
+        """Detect object and return (centroid, contour) tuple or (None, None)."""
+        contour = self._detect(frame, drawing_frame)
+        
+        if contour is None:
+            return None, None
+        
+        centroid = self.get_centroid(contour)
+        return centroid, contour
+    
+    @staticmethod
+    def get_centroid(contour):
+        """Get centroid (x, y) of contour or None if invalid."""
+        if contour is None:
+            return None
+        
+        M = cv2.moments(contour)
+        if M['m00'] == 0:
+            return None
+        
+        cx = int(M['m10'] / M['m00'])
+        cy = int(M['m01'] / M['m00'])
+        return (cx, cy)
+
+class BallDetector(ObjectDetector):
     """Detects ball in image using HSV thresholding."""
     
     def __init__(self, hsv_lower=None, hsv_upper=None):
-        """Initialize detector.
-        
-        Args:
-            hsv_lower: Lower HSV threshold (H, S, V). If None, loads from file or uses defaults.
-            hsv_upper: Upper HSV threshold (H, S, V). If None, loads from file or uses defaults.
-        """
+        """Initialize detector with HSV thresholds (loads from file if None)."""
         if hsv_lower is None or hsv_upper is None:
             hsv_lower, hsv_upper = self._load_thresholds()
         
@@ -33,15 +59,15 @@ class BallDetector:
         # Default to yellow ball
         return (20, 100, 100), (30, 255, 255)
     
-    def detect(self, frame, drawing_frame=None):
-        """Detect ball in frame.
+    def _detect(self, frame, drawing_frame=None):
+        """Detect ball contour using HSV thresholding.
         
         Args:
             frame: BGR image
             drawing_frame: Optional frame to draw ball outline on
             
         Returns:
-            Ball contour or None if not found
+            Ball contour (numpy array) or None if not found
         """
         # Blur to reduce noise
         blurred = cv2.GaussianBlur(frame, (11, 11), 0)
@@ -60,7 +86,7 @@ class BallDetector:
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
-            return None
+            return None, None
         
         # Find most circular contour
         best_contour = None
@@ -92,32 +118,44 @@ class BallDetector:
             cv2.drawContours(drawing_frame, [best_contour], -1, (0, 255, 0), 2)
         
         return best_contour
+
+
+class ArucoDetector(ObjectDetector):
+    """Detects specific ArUco marker in image."""
     
-    @staticmethod
-    def get_centroid(contour):
-        """Get centroid of contour.
+    def __init__(self, aruco_dict, marker_id):
+        """Initialize detector with ArUco dictionary and marker ID."""
+        self.aruco_dict = aruco_dict
+        self.marker_id = marker_id
+        self.detector = cv2.aruco.ArucoDetector(aruco_dict)
+    
+    def _detect(self, frame, drawing_frame=None):
+        """Detect ArUco marker contour."""
+        corners, ids, _ = self.detector.detectMarkers(frame)
         
-        Args:
-            contour: OpenCV contour
-            
-        Returns:
-            (x, y) tuple or None if contour is invalid
-        """
-        if contour is None:
+        if ids is None:
             return None
         
-        M = cv2.moments(contour)
-        if M['m00'] == 0:
-            return None
+        # Find the marker with matching ID
+        for i, marker_id in enumerate(ids.flatten()):
+            if marker_id == self.marker_id:
+                # Convert corner points to contour format
+                contour = corners[i].reshape(-1, 1, 2).astype(np.int32)
+                
+                # Draw on frame if provided
+                if drawing_frame is not None:
+                    cv2.drawContours(drawing_frame, [contour], -1, (0, 255, 0), 2)
+                
+                return contour
         
-        cx = int(M['m10'] / M['m00'])
-        cy = int(M['m01'] / M['m00'])
-        return (cx, cy)
+        return None
+
 
 if __name__ == "__main__":
     from cam_config import global_cam
     
-    detector = BallDetector()
+    ball_detector = BallDetector()
+    aruco_detector = ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100), 12)
     
     # State for mouse callback
     click_state = {'frame': None}
@@ -148,8 +186,8 @@ if __name__ == "__main__":
             upper = (min(179, int(h) + h_tol), min(255, int(s) + s_tol), min(255, int(v) + v_tol))
             
             # Update detector
-            detector.hsv_lower = np.array(lower, dtype=np.uint8)
-            detector.hsv_upper = np.array(upper, dtype=np.uint8)
+            ball_detector.hsv_lower = np.array(lower, dtype=np.uint8)
+            ball_detector.hsv_upper = np.array(upper, dtype=np.uint8)
             
             # Save to file
             with open('ball_thresholds.txt', 'w') as f:
@@ -158,16 +196,16 @@ if __name__ == "__main__":
             
             print(f"Updated thresholds: Lower={lower}, Upper={upper}")
     
-    cv2.namedWindow("Ball Detection")
-    cv2.setMouseCallback("Ball Detection", mouse_callback)
+    cv2.namedWindow("Object Detection")
+    cv2.setMouseCallback("Object Detection", mouse_callback)
     
     while True:
         key = cv2.waitKey(1) & 0xFF
         if key == 27:  # ESC
             break
         elif key == ord('r'):  # Reset to default yellow thresholds
-            detector.hsv_lower = np.array([20, 100, 100], dtype=np.uint8)
-            detector.hsv_upper = np.array([30, 255, 255], dtype=np.uint8)
+            ball_detector.hsv_lower = np.array([20, 100, 100], dtype=np.uint8)
+            ball_detector.hsv_upper = np.array([30, 255, 255], dtype=np.uint8)
             with open('ball_thresholds.txt', 'w') as f:
                 f.write("20,100,100\n")
                 f.write("30,255,255\n")
@@ -179,21 +217,19 @@ if __name__ == "__main__":
         click_state['frame'] = frame
         
         # Detect ball
-        contour = detector.detect(frame, drawing_frame=drawing_frame)
+        ball_centroid, ball_contour = ball_detector.detect(frame, drawing_frame=drawing_frame)
+        if ball_centroid is not None:
+            cv2.circle(drawing_frame, ball_centroid, 5, (0, 0, 255), -1)
         
-        # Get and display centroid
-        if contour is not None:
-            centroid = detector.get_centroid(contour)
-            if centroid is not None:
-                cx, cy = centroid
-                cv2.circle(drawing_frame, (cx, cy), 5, (0, 0, 255), -1)
-                cv2.putText(drawing_frame, f"Ball: ({cx}, {cy})", (cx + 10, cy - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        # Detect ArUco marker
+        aruco_centroid, aruco_contour = aruco_detector.detect(frame, drawing_frame=drawing_frame)
+        if aruco_centroid is not None:
+            cv2.circle(drawing_frame, aruco_centroid, 5, (255, 0, 0), -1)
         
         # Display instructions
         cv2.putText(drawing_frame, "Double-click ball to configure | R to reset", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
         # Display
-        cv2.imshow("Ball Detection", drawing_frame)
-        cv2.setWindowProperty("Ball Detection", cv2.WND_PROP_TOPMOST, 1)
+        cv2.imshow("Object Detection", drawing_frame)
+        cv2.setWindowProperty("Object Detection", cv2.WND_PROP_TOPMOST, 1)

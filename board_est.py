@@ -38,6 +38,14 @@ class PnpResult:
         self.tvec = tvec
         self.rvec = rvec
 
+    def get_board_T(self):
+        """Get the 4x4 transformation matrix from board to camera coordinates.
+        
+        Returns:
+            4x4 numpy array representing the board pose
+        """
+        return vecs_to_matrix(self.rvec, self.tvec)
+
     def get_quad_corners(self):
         """
         Selects four corners from obj_pts/img_pts that correspond to the board's
@@ -85,23 +93,49 @@ class PnpResult:
         quad_img = np.array(quad_img, dtype=np.float32)  # shape (4,2)
         return quad_obj, quad_img
 
-    def project_point(self, point):
-        """
-        Projects a 2D image point (u, v) into object‐space (X, Y) by:
-          1) selecting four corners via get_quad_corners()
-          2) building H = getPerspectiveTransform(quad_img→quad_obj)
-          3) applying H to (u, v)
-
-        Returns:
-          (X, Y) as floats.
-        """
+    def project_point(self, point, z=0.0):
         quad_obj, quad_img = self.get_quad_corners()
         H = cv2.getPerspectiveTransform(quad_img, quad_obj)
         pts = np.array([[[point[0], point[1]]]], dtype=np.float32)  # shape (1,1,2)
         projected = cv2.perspectiveTransform(pts, H)  # shape (1,1,2)
         X = float(projected[0, 0, 0])
         Y = float(projected[0, 0, 1])
-        return (X, Y)
+        Z = z
+
+        # Get camera position in board coordinates
+        board_T = self.get_board_T()
+        # board_T transforms from board to camera, so invert to get camera pose in board frame
+        cam_T_in_board = np.linalg.inv(board_T)
+        cam_pos = cam_T_in_board[:3, 3]  # Camera position in board coordinates
+        
+        # Calculate angle between camera and ball
+        # Vector from camera to ball (not ball to camera)
+        delta_x = X - cam_pos[0]
+        delta_y = Y - cam_pos[1]
+        delta_z = Z - cam_pos[2]
+        
+        # Angle in X axis: angle between projection onto YZ plane
+        # atan2(delta_x, delta_z) gives angle from Z axis toward X
+        angle_x = math.atan2(delta_x, delta_z)
+        
+        # Angle in Y axis: angle between projection onto XZ plane
+        angle_y = math.atan2(delta_y, delta_z)
+        
+        # Apply parallax correction based on object height and viewing angles
+        # The homography projects to Z=0, but object is at height Z
+        # Offset is Z * tan(angle) in each axis
+        offset_x = Z * math.tan(angle_x)
+        offset_y = Z * math.tan(angle_y)
+        
+        # Correct the position
+        X_corrected = X - offset_x
+        Y_corrected = Y - offset_y
+        
+        # Print debug info
+        print(f"Ball: ({X:.3f}, {Y:.3f}, {Z:.3f}) -> Corrected: ({X_corrected:.3f}, {Y_corrected:.3f}), Cam: ({cam_pos[0]:.3f}, {cam_pos[1]:.3f}, {cam_pos[2]:.3f})")
+        print(f"Angle X: {math.degrees(angle_x):.2f}°, Angle Y: {math.degrees(angle_y):.2f}°")
+
+        return (X_corrected, Y_corrected)
 
 class BoardEstimator:
     def __init__(self, board_config, K, D=None, rotate_180=True):
@@ -177,7 +211,7 @@ class BoardEstimator:
         
         return board_T, res
     
-    def project_point_to_board(self, pnp_result, image_point, frame_shape):
+    def project_point_to_board(self, pnp_result, image_point, frame_shape, z=0.0):
         """Project image point to board coordinates, handling rotation if enabled.
         
         Args:
@@ -193,11 +227,11 @@ class BoardEstimator:
             cx, cy = w / 2, h / 2
             x, y = image_point
             rotated_point = (2 * cx - x, 2 * cy - y)
-            board_x, board_y = pnp_result.project_point(rotated_point)
+            board_x, board_y = pnp_result.project_point(rotated_point, z=z)
             # Invert Y to match board coordinate convention (Y up vs image Y down)
             return (board_x, -board_y)
         else:
-            return pnp_result.project_point(image_point)
+            return pnp_result.project_point(image_point, z=z)
 
 def get_board_pose(
     board: cv2.aruco.Board,
