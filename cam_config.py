@@ -96,7 +96,7 @@ def _get_droidcam_image(rotation = None):
     ip = "http://192.168.43.1:4747/video"
     ip = "http://192.168.1.211:4747/video"
     ip = "http://192.168.4.25:4747/video"
-    ip = "http://192.168.137.210:4747/video"
+    ip = "http://192.168.137.182:4747/video"
     _get_droidcam_image.cap = getattr(_get_droidcam_image, 'cap', None)
     if _get_droidcam_image.cap is None:
         _get_droidcam_image.cap = cv2.VideoCapture(ip)

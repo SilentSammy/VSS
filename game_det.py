@@ -57,6 +57,21 @@ class GameDetector:
 
         self.player_detector = aruco_detector
         self.player_height = player_height
+    
+    @staticmethod
+    def _same_marker_size(dict1, dict2):
+        """Check if two ArUco dictionaries have the same marker dimensions.
+        
+        Args:
+            dict1: First cv2.aruco.Dictionary
+            dict2: Second cv2.aruco.Dictionary
+            
+        Returns:
+            bool: True if both have same marker size (e.g., both 4x4, both 5x5)
+        """
+        if dict1 is None or dict2 is None:
+            return False
+        return dict1.markerSize == dict2.markerSize
 
     def _localize(self, frame, centroid, pnp_result, height):
         """Detect object and return 3D board coordinates with parallax correction."""
@@ -114,9 +129,10 @@ class GameDetector:
         if self.player_detector is not None:
             player_detections = self.player_detector.detect(frame)
             for player in player_detections:
-                # Skip board markers
+                # Skip board markers (only if same marker dimensions)
                 if (self.board_estimator.config.board_marker_ids is not None and 
-                    player.id in self.board_estimator.config.board_marker_ids):
+                    player.id in self.board_estimator.config.board_marker_ids and
+                    self._same_marker_size(player.dict, self.board_estimator.config.dictionary)):
                     continue
                 
                 xyz = self._localize(frame, player.centroid, pnp_result, self.player_height)
@@ -177,6 +193,8 @@ class GameDetector:
 
 if __name__ == "__main__":
     import cv2
+    import time
+    from collections import deque
     from board_config import board_config_letter
     from cam_config import global_cam
     
@@ -189,18 +207,41 @@ if __name__ == "__main__":
         player_height=0.04
     )
     
+    last_time = time.time()
+    frame_times = deque(maxlen=30)  # Rolling average over last 30 frames
+    
     while True:
         if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
             break
         
+        t0 = time.perf_counter()
         frame = global_cam.get_frame()
+        t1 = time.perf_counter()
+        
         if frame is None:
             continue
         
         drawing_frame = frame.copy()
+        t2 = time.perf_counter()
         
         # Detect game state
         game_state = game_detector.detect(frame, drawing_frame)
+        t3 = time.perf_counter()
+        
+        # Calculate FPS with rolling average
+        current_time = time.time()
+        dt = current_time - last_time
+        last_time = current_time
+        frame_times.append(dt)
+        avg_dt = sum(frame_times) / len(frame_times)
+        fps = 1.0 / avg_dt if avg_dt > 0 else 0
+        
+        # Print timing breakdown
+        print(f"Frame acquire: {(t1-t0)*1000:.1f}ms | Frame copy: {(t2-t1)*1000:.1f}ms | " 
+              f"Detect: {(t3-t2)*1000:.1f}ms | Total: {(t3-t0)*1000:.1f}ms | FPS: {fps:.1f}")
+        
+        # Annotate FPS
+        print(f"FPS: {fps:.1f} ({avg_dt*1000:.1f}ms)")
         
         # Annotate balls
         for i, ball in enumerate(game_state.balls):
