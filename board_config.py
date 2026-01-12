@@ -85,6 +85,7 @@ class BoardConfig:
         self.filename = filename
         self.board: cv2.aruco.Board = self._create_board()
         self.center = self._calculate_center()
+        self.board_marker_ids = []  # Override in subclasses
     
     @property
     def image_path(self):
@@ -198,7 +199,7 @@ class GridboardConfig(BoardConfig):
         # Calculate marker separation automatically
         # board_width = (n_markers * marker_length) + ((n_markers - 1) * separation)
         # separation = (board_width - n_markers * marker_length) / (n_markers - 1)
-        cols = size[0]
+        cols, rows = size
         total_marker_width = cols * marker_length
         if cols > 1:
             self.marker_separation = (board_width - total_marker_width) / (cols - 1)
@@ -207,6 +208,9 @@ class GridboardConfig(BoardConfig):
         
         # Call parent constructor
         super().__init__(dictionary, board_width, print_width, filename)
+        
+        # Set board marker IDs
+        self.board_marker_ids = list(range(cols * rows))
         
         # Create detector (specific to GridBoard)
         self.detector = cv2.aruco.ArucoDetector(self.dictionary)

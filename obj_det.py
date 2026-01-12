@@ -13,12 +13,6 @@ class DetectedObject:
     parent : 'ObjectDetector' = None
     source_image = None  # The original image this object was detected in
 
-@dataclass
-class DetectedAruco(DetectedObject):
-    id : int = None  # ArUco marker ID
-    dict : cv2.aruco.Dictionary = None  # ArUco dictionary used
-    angle : float = None  # Marker orientation in radians
-
 class ObjectDetector:
     """Base class for object detection."""
     
@@ -181,6 +175,12 @@ class BallDetector(ObjectDetector):
         
         return [DetectedObject(contour=best_contour)]
 
+@dataclass
+class DetectedAruco(DetectedObject):
+    id : int = None  # ArUco marker ID
+    dict : cv2.aruco.Dictionary = None  # ArUco dictionary used
+    angle : float = None  # Marker orientation in radians, relative to image's x axis
+
 class ArucoDetector(ObjectDetector):
     """Detects all ArUco markers in image."""
     
@@ -215,7 +215,8 @@ class ArucoDetector(ObjectDetector):
         angle = np.arctan2(dy, dx)
         
         # Apply π/2 offset and negation
-        return -(angle - np.pi/2)
+        angle = -(angle - np.pi/2)
+        return angle
     
     def _detect(self, frame, drawing_frame=None):
         """Detect all ArUco markers and return list of DetectedAruco instances.
@@ -259,7 +260,6 @@ if __name__ == "__main__":
     
     ball_detector = BallDetector()
     aruco_detector = ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100))
-
 
     # State for mouse callback
     click_state = {'frame': None}
@@ -331,7 +331,10 @@ if __name__ == "__main__":
         aruco_detections = aruco_detector.detect(frame, drawing_frame=drawing_frame)
         if aruco_detections:
             aruco = aruco_detections[0]
-            print(f"Aruco pos: {aruco.norm_centroid}")
+            cv2.putText(drawing_frame, f"Aruco pos: ({aruco.norm_centroid[0]:.3f}, {aruco.norm_centroid[1]:.3f})", 
+                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(drawing_frame, f"Aruco angle: {np.degrees(aruco.angle):.1f} deg", 
+                       (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         # Display instructions
         cv2.putText(drawing_frame, "Double-click ball to configure | R to reset | ESC to exit", (10, 30),

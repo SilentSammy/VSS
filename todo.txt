@@ -1,10 +1,8 @@
-+ retake calibration images
-+ Add rotation setting to cam_config
-- Allow cam_config to keep retrying
+CAMERA
+-- Allow cam_config to keep retrying
+-- What if we had a camera that was actually a recorded video? We could even encode the camera intrinsics into the video title or metadata such that when we load the video it also instantiates the intrinsics needed for pose estimation. Furthermore, we could also add playback controls by importing the pynputs module.
 
-- Fix Aruco angle convention
-
-- Create class that returns GameState object
++ Create class that returns GameState object
 - Research how to plot more efficiently, common fixes in matplotlib, etc.
 - Create GamePlotter class that uses a more efficient library than matplotlib. It should consume a GameState object and output a plot / image.
 
@@ -14,8 +12,8 @@
 
 - Make board image a true transparent png. Also, create proper soccer field.
 
-- 3 axis PID wrapper that takes errors and returns command
+-- 3 axis PID wrapper that takes errors and returns command
 
-- unblur frames
+-- unblur frames
 
-- 
+-- parallax effect for players not properly accounted for at very extreme viewing angles

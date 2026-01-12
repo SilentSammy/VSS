@@ -41,7 +41,7 @@ def main():
             # Process largest detected ArUco (closest marker)
             if detections:
                 marker = max(detections, key=lambda d: d.area)
-                angle = marker.angle - np.radians(90)  # Adjust based on marker orientation
+                angle = marker.angle - np.radians(90)  # Adjust based on desired angle (angle is measured from x axis, so subtract 90° to get from y axis)
                 norm_x, norm_y = marker.norm_centroid
                 
                 # Annotate on drawing frame

@@ -77,8 +77,8 @@ def _get_sim_image():
         from coppeliasim_zmqremoteapi_client import RemoteAPIClient
         client = RemoteAPIClient('localhost', 23000)
         sim = client.getObject('sim')
-        # _get_sim_image.cam_handle = sim.getObjectHandle('/visionSensor[1]')
-        _get_sim_image.cam_handle = sim.getObjectHandle('/visionSensor[0]')
+        _get_sim_image.cam_handle = sim.getObjectHandle('/visionSensor[1]')
+        # _get_sim_image.cam_handle = sim.getObjectHandle('/visionSensor[0]')
         _get_sim_image.sim = sim
 
     sim = _get_sim_image.sim
@@ -142,8 +142,8 @@ usb_cam = Camera(
 
 # Last assignment gets used as global_cam
 global_cam = usb_cam
-global_cam = sim_cam
 global_cam = droidcam
+global_cam = sim_cam
 
 if __name__ == "__main__":
     while True:
