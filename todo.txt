@@ -10,10 +10,17 @@ CAMERA
     + Move BoardPlotter3D to the board_est module, so we can remove plotter3d module.
     + Remove rc folder
 
-- Make board image a true transparent png. Also, create proper soccer field.
++ Make board image a true transparent png. Also, create proper soccer field.
 
 -- 3 axis PID wrapper that takes errors and returns command
 
 -- unblur frames
 
 -- parallax effect for players not properly accounted for at very extreme viewing angles
+
+FIX Brown-out: Things to try
++ Change PWM frequency
+- Different ESP32
+++ Parallel batteries
+- 9V solely for ESP32, another 9V for motors and drivers (regulated down to 5)
+- 18V

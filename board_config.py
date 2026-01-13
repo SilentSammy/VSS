@@ -129,15 +129,16 @@ class BoardConfig:
         
         return self.print_width, print_height
     
-    def generate_image(self, filepath=None, width_px=2160):
+    def generate_image(self, filepath=None, width_px=2160, marker_margin_px=0):
         """Generate board image in pixels with automatic margin calculation.
         
         Args:
             width_px: Width of the board content in pixels (not including margin)
             filepath: Optional path to save the image. If None, image is not saved.
+            marker_margin_px: Transparent margin around markers in pixels (default: 4)
             
         Returns:
-            Board image with margins based on print_width
+            Board image with margins based on print_width (BGRA with transparent background)
         """
         # Get board dimensions from subclass
         actual_width, actual_height = self.get_board_dimensions()
@@ -158,25 +159,55 @@ class BoardConfig:
         # Generate board image with margin built-in
         img = self.board.generateImage((adjusted_width, adjusted_height), marginSize=margin_px, borderBits=1)
         
+        # Create transparent PNG by masking out the white background
+        # Check if image is already grayscale
+        if len(img.shape) == 2 or img.shape[2] == 1:
+            gray = img
+        else:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Threshold to find black pixels (marker borders)
+        _, black_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+        
+        # Find contours of marker regions
+        contours, _ = cv2.findContours(black_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Create alpha mask by filling all marker contours
+        alpha = np.zeros_like(gray)
+        cv2.drawContours(alpha, contours, -1, 255, -1)  # Fill all contours
+        
+        # Optionally dilate to add margin around markers
+        if marker_margin_px > 0:
+            # Each iteration expands by ~1-2 pixels, so use half the desired margin
+            iterations = max(1, marker_margin_px // 2)
+            kernel = np.ones((3, 3), np.uint8)
+            alpha = cv2.dilate(alpha, kernel, iterations=iterations)
+        
+        # Add alpha channel to image
+        if len(img.shape) == 2:
+            # Grayscale image, convert to BGRA
+            img_rgba = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+        else:
+            img_rgba = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+        img_rgba[:, :, 3] = alpha
+        img = img_rgba
+        
         # Save if filepath provided
         if filepath is not None:
             cv2.imwrite(filepath, img)
         
         return img
 
-    def generate_pdf(self, filepath, width_px=2160):
+    def generate_pdf(self, img, filepath):
         """Generate PDF with board at exact physical dimensions.
         
         Args:
+            img: Board image (from generate_image)
             filepath: Output PDF file path
-            width_px: Image resolution in pixels
             
         Returns:
             str: Path to generated PDF file
         """
-        # Generate high-res image in memory
-        img = self.generate_image(width_px=width_px)
-        
         # Use helper function to create PDF (uses print_width for total page size)
         return image_to_pdf(img, filepath, self.print_width)
 
@@ -263,7 +294,7 @@ board_config_plotter = GridboardConfig(
     dictionary=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50),
     size=(3, 4),
     marker_length=0.05,
-    board_width=0.58,
+    board_width=0.56,
     print_width=0.6,
     filename="resources/gridboard_plotter"
 )
@@ -275,11 +306,11 @@ board_config_letter = GridboardConfig(
     print_width=0.2159,    # Letter width is 8.5" = 21.59cm
     filename="resources/gridboard_letter"
 )
-# board_config = board_config_plotter
-board_config = board_config_letter
+global_board_config = board_config_letter
+global_board_config = board_config_plotter
 
 if __name__ == "__main__":
     # Example usage: save board image and PDF
-    board_config.generate_image(filepath=board_config.image_path)
-    board_config.generate_pdf(board_config.pdf_path)
-    print(board_config.get_print_dimensions())  # Print dimensions including margins
+    img = global_board_config.generate_image(filepath=global_board_config.image_path, width_px=2160*4)
+    global_board_config.generate_pdf(img, global_board_config.pdf_path)
+    print(global_board_config.get_print_dimensions())  # Print dimensions including margins

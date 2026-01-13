@@ -5,10 +5,10 @@ import ble_server
 
 # Motor pin assignments (PWM control)
 MOTOR_PINS = [
-    (3, 2),    # Motor 1
-    (1, 0),    # Motor 2
-    (9, 10),   # Motor 3
-    (20, 21),  # Motor 4
+    (3, 2),
+    (1, 0),
+    (9, 10),
+    (20, 21),
 ]
 
 class Motor:
@@ -129,10 +129,10 @@ class MecanumCar:
     
     def _update_motors(self):
         """Apply mecanum kinematics to calculate and set motor speeds."""
-        fl = self._x + self._y - self._w
-        fr = self._x - self._y + self._w
-        bl = self._x - self._y - self._w
-        br = self._x + self._y + self._w
+        fl = self._x + self._y + self._w
+        fr = self._x - self._y - self._w
+        bl = self._x - self._y + self._w
+        br = self._x + self._y - self._w
         
         # Normalize if any value exceeds ±1
         max_val = max(abs(fl), abs(fr), abs(bl), abs(br))

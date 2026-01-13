@@ -4,11 +4,54 @@ import time
 import ble_server
 from mecanum import MecanumCar
 
-if __name__ == "__main__":
-    print("Mecanum car BLE control starting...")
+car = MecanumCar()
+
+def test():
+    """Test each motor individually: forward, backward, stop."""
+    test_power = 0.5
+    test_duration = 2
     
-    # Create mecanum car
-    car = MecanumCar()
+    try:
+        print("Testing Front-Left motor...")
+        car.motor_fl.set_power(test_power)
+        time.sleep(test_duration)
+        car.motor_fl.set_power(-test_power)
+        time.sleep(test_duration)
+        car.motor_fl.stop()
+        time.sleep(1)
+        
+        print("Testing Front-Right motor...")
+        car.motor_fr.set_power(test_power)
+        time.sleep(test_duration)
+        car.motor_fr.set_power(-test_power)
+        time.sleep(test_duration)
+        car.motor_fr.stop()
+        time.sleep(1)
+        
+        print("Testing Back-Left motor...")
+        car.motor_bl.set_power(test_power)
+        time.sleep(test_duration)
+        car.motor_bl.set_power(-test_power)
+        time.sleep(test_duration)
+        car.motor_bl.stop()
+        time.sleep(1)
+        
+        print("Testing Back-Right motor...")
+        car.motor_br.set_power(test_power)
+        time.sleep(test_duration)
+        car.motor_br.set_power(-test_power)
+        time.sleep(test_duration)
+        car.motor_br.stop()
+        
+        print("Per-motor test complete!")
+        
+    except KeyboardInterrupt:
+        print("\nTest interrupted")
+    finally:
+        car.stop()
+
+def main():
+    print("Mecanum car BLE control starting...")
     
     # Define BLE callback for combined velocity
     def on_velocity(data):
@@ -29,4 +72,7 @@ if __name__ == "__main__":
     print("\nBLE control active. Use BLE client to control the car.")
     print("Characteristics:")
     print("  Velocity (x,y,w):    ...def1")
-    
+
+if __name__ == "__main__":
+    # test()
+    main()

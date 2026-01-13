@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+import threading
+import queue
+import time
 
 def rotate_intrinsics(rotation, K, image_size):
     """Rotate camera intrinsics for rotated image.
@@ -91,12 +94,9 @@ def _get_sim_image():
     img = cv2.flip(img, 0)
     return img
 
-def _get_droidcam_image(rotation = None):
-    ip = "http://10.173.208.191:4747/video"
-    ip = "http://192.168.43.1:4747/video"
-    ip = "http://192.168.1.211:4747/video"
-    ip = "http://192.168.4.25:4747/video"
-    ip = "http://192.168.137.182:4747/video"
+def _get_droidcam_image_2(rotation = None):
+    ip = "http://192.168.137.128:4747/video"
+    ip = "http://10.22.209.148:4747/video"
     _get_droidcam_image.cap = getattr(_get_droidcam_image, 'cap', None)
     if _get_droidcam_image.cap is None:
         _get_droidcam_image.cap = cv2.VideoCapture(ip)
@@ -108,10 +108,60 @@ def _get_droidcam_image(rotation = None):
         frame = cv2.rotate(frame, rotation)
     return frame
 
+def _get_droidcam_image(rotation = None):
+    """Get frame from DroidCam using background thread to avoid HTTP blocking."""
+    ip = "http://192.168.137.128:4747/video"
+    ip = "http://10.22.209.148:4747/video"
+    
+    # Initialize threaded capture on first call
+    _get_droidcam_image.thread_cap = getattr(_get_droidcam_image, 'thread_cap', None)
+    if _get_droidcam_image.thread_cap is None:
+        cap = cv2.VideoCapture(ip)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize buffer to reduce latency
+        
+        # Create thread-safe queue for frames
+        frame_queue = queue.Queue(maxsize=1)
+        
+        def capture_frames():
+            """Background thread that continuously captures frames."""
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+                # Non-blocking put - if queue is full, discard old frame
+                try:
+                    frame_queue.put_nowait(frame)
+                except queue.Full:
+                    # Remove old frame and add new one
+                    try:
+                        frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        frame_queue.put_nowait(frame)
+                    except queue.Full:
+                        pass
+        
+        # Start background thread
+        thread = threading.Thread(target=capture_frames, daemon=True)
+        thread.start()
+        
+        _get_droidcam_image.thread_cap = frame_queue
+    
+    # Get latest frame without blocking
+    try:
+        frame = _get_droidcam_image.thread_cap.get_nowait()
+    except queue.Empty:
+        return None
+    
+    if rotation is not None:
+        frame = cv2.rotate(frame, rotation)
+    return frame
+
 def _get_usb_image():
     _get_usb_image.cap = getattr(_get_usb_image, 'cap', None)
     if _get_usb_image.cap is None:
-        _get_usb_image.cap = cv2.VideoCapture(1)
+        _get_usb_image.cap = cv2.VideoCapture(0)
     
     ret, frame = _get_usb_image.cap.read()
     if not ret:
@@ -135,25 +185,36 @@ droidcam = Camera(
 )
 
 usb_cam = Camera(
-    K=np.array([[800, 0, 320], [0, 800, 240], [0, 0, 1]], dtype=np.float32),
+    K=np.array([[923.31561344, 0., 339.54573078], [0., 931.19467981, 233.51319736], [0., 0., 1.]], dtype=np.float32),
+    # D=np.array([2.59441499e-01, 8.24321474e+00, -8.65629777e+01, 2.89584642e+02], dtype=np.float32),
     D=np.zeros(5),
     frame_getter=_get_usb_image
 )
 
 # Last assignment gets used as global_cam
-global_cam = usb_cam
-global_cam = droidcam
 global_cam = sim_cam
+global_cam = droidcam
+global_cam = usb_cam
 
 if __name__ == "__main__":
     while True:
+        loop_start = time.perf_counter()
+        
         if cv2.waitKey(1) & 0xFF == 27:
             break
         
         # Get frame
+        t0 = time.perf_counter()
         frame = global_cam.get_frame()
-        drawing_frame = frame.copy()
+        t_frame = time.perf_counter() - t0
 
         # Display
-        cv2.imshow("Vision Sensor", drawing_frame)
+        t0 = time.perf_counter()
+        cv2.imshow("Vision Sensor", frame)
         cv2.setWindowProperty("Vision Sensor", cv2.WND_PROP_TOPMOST, 1)
+        t_display = time.perf_counter() - t0
+        
+        # Print timing info
+        loop_time = time.perf_counter() - loop_start
+        fps = 1.0 / loop_time if loop_time > 0 else 0
+        print(f"FPS: {fps:5.1f} | Frame: {t_frame*1000:5.1f}ms | Display: {t_display*1000:5.1f}ms")

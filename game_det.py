@@ -391,20 +391,35 @@ if __name__ == "__main__":
     import cv2
     import time
     from collections import deque
-    from board_config import board_config_letter
+    import board_config
+    from board_config import global_board_config
     from cam_config import global_cam
     
+    # Setup-specific settings
+    if global_board_config == board_config.board_config_letter:
+        player_height = 0.04
+        plot_player_width = 0.015
+        plot_player_height = 0.02
+    else:
+        player_height = 0.8
+        plot_player_width = 0.05
+        plot_player_height = 0.075
+
     # Setup GameDetector
     game_detector = GameDetector(
-        board_estimator=BoardEstimator(board_config_letter, K=global_cam.K, D=global_cam.D, rotate_180=True),
+        board_estimator=BoardEstimator(global_board_config, K=global_cam.K, D=global_cam.D, rotate_180=True),
         ball_detector=BallDetector(),
         ball_height=0.02,
         aruco_detector=ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)),
-        player_height=0.04
+        player_height=0.04,
     )
     
     # Setup 2D plotter
-    plotter = GamePlotter2D(board_config_letter)
+    plotter = GamePlotter2D(
+        global_board_config,
+        player_width=plot_player_width,
+        player_length=plot_player_height
+    )
     
     last_time = time.time()
     frame_times = deque(maxlen=30)  # Rolling average over last 30 frames

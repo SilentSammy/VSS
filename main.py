@@ -8,6 +8,22 @@ from cv2 import aruco
 from cam_config import global_cam
 from obj_det import ArucoDetector
 from simple_pid import PID
+import time
+
+def rotate_commands(x_ref, y_ref, angle):
+    """Rotate commands from one frame to robot frame accounting for orientation.
+    
+    Args:
+        x_ref: X command in reference frame
+        y_ref: Y command in reference frame
+        angle: Robot orientation angle in radians relative to reference frame
+        
+    Returns:
+        tuple: (x, y) commands in robot frame
+    """
+    x = x_ref * np.cos(angle) - y_ref * np.sin(angle)
+    y = x_ref * np.sin(angle) + y_ref * np.cos(angle)
+    return x, y
 
 def main():
     ad = ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100))
@@ -28,17 +44,24 @@ def main():
     
     try:
         while True:
+            loop_start = time.perf_counter()
+            
             if cv2.waitKey(1) & 0xFF == 27:
                 break
         
             # Get frame
+            t0 = time.perf_counter()
             frame = global_cam.get_frame()
             drawing_frame = frame.copy()
+            t_frame = time.perf_counter() - t0
 
             # Detect markers
+            t0 = time.perf_counter()
             detections = ad.detect(frame, drawing_frame=drawing_frame)
+            t_detect = time.perf_counter() - t0
             
             # Process largest detected ArUco (closest marker)
+            t0 = time.perf_counter()
             if detections:
                 marker = max(detections, key=lambda d: d.area)
                 angle = marker.angle - np.radians(90)  # Adjust based on desired angle (angle is measured from x axis, so subtract 90° to get from y axis)
@@ -63,22 +86,30 @@ def main():
                 y_cam = pid_y(norm_x)  # Camera x (left/right) → Camera y
                 
                 # Rotate translation commands to account for marker orientation
-                # When marker is rotated, we need to rotate our control commands too
-                x = x_cam * np.cos(angle) - y_cam * np.sin(angle)
-                y = x_cam * np.sin(angle) + y_cam * np.cos(angle)
+                x, y = rotate_commands(x_cam, y_cam, angle)
                 
                 # Create algorithmic command
                 auto_cmd = {'x': x, 'y': y, 'w': w}
             else:
                 # No marker detected
                 auto_cmd = {'x': 0, 'y': 0, 'w': 0}
+            t_control = time.perf_counter() - t0
             
             # Send command with manual override
+            t0 = time.perf_counter()
             client.set_velocity(get_manual_override(auto_cmd))
+            t_ble = time.perf_counter() - t0
 
             # Display
+            t0 = time.perf_counter()
             cv2.imshow("Vision Sensor", drawing_frame)
             cv2.setWindowProperty("Vision Sensor", cv2.WND_PROP_TOPMOST, 1)
+            t_display = time.perf_counter() - t0
+            
+            # Print timing info
+            loop_time = time.perf_counter() - loop_start
+            fps = 1.0 / loop_time if loop_time > 0 else 0
+            print(f"FPS: {fps:5.1f} | Frame: {t_frame*1000:5.1f}ms | Detect: {t_detect*1000:5.1f}ms | Control: {t_control*1000:5.1f}ms | BLE: {t_ble*1000:5.1f}ms | Display: {t_display*1000:5.1f}ms")
     finally:
         # Stop all motors before disconnect
         client.stop()

@@ -1,3 +1,4 @@
+import numpy as np
 import asyncio
 from bleak import BleakScanner, BleakClient
 from threading import Thread
@@ -32,8 +33,8 @@ def merge_proportional(cmd_primary, cmd_secondary):
 
 def get_user_cmd():
     import combined_input as inp
-    slow = 0.3
-    fast = 0.6
+    slow = 0.5
+    fast = 1.0
     scale = fast if inp.is_pressed('c') else slow  # 'C' key for full speed
     return {
         'x': inp.get_bipolar_ctrl('w', 's', 'LY') * scale,
