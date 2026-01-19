@@ -2,6 +2,9 @@ import numpy as np
 import asyncio
 from bleak import BleakScanner, BleakClient
 from threading import Thread
+import socket
+import struct
+import json
 
 def to_byte(val):
     """Convert -1.0 to +1.0 range to 0-255 byte using two's complement"""
@@ -38,8 +41,8 @@ def get_user_cmd():
     scale = fast if inp.is_pressed('c') else slow  # 'C' key for full speed
     return {
         'x': inp.get_bipolar_ctrl('w', 's', 'LY') * scale,
-        'y': inp.get_bipolar_ctrl('a', 'd', 'LX') * scale, # positive y is left according to right-handed coordinate system
-        'w': inp.get_bipolar_ctrl('q', 'e', 'RX') * scale
+        'y': inp.get_bipolar_ctrl('d', 'a', 'LX') * scale,
+        'w': inp.get_bipolar_ctrl('e', 'q', 'RX') * scale
     }
 
 def get_manual_override(cmd):
@@ -185,27 +188,216 @@ class MecanumBLEClient:
         self.y = 0.0
         self.w = 0.0
 
+class MecanumSocketClient:
+    """TCP socket client for sending commands to BLE proxy server"""
+    
+    def __init__(self, host="localhost", port=5000, resolution=0.05):
+        self.host = host
+        self.port = port
+        self.resolution = resolution
+        self.sock = None
+        
+        # Velocity control fields
+        self.x = 0.0
+        self.y = 0.0
+        self.w = 0.0
+    
+    def connect(self):
+        """Connect to the proxy server (blocking)"""
+        print(f"Connecting to proxy at {self.host}:{self.port}...")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((self.host, self.port))
+        print("✓ Connected to proxy\n")
+    
+    def disconnect(self):
+        """Disconnect from the proxy server"""
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+            print("Disconnected from proxy.")
+    
+    def send(self, force=False):
+        """Send current velocity fields (x, y, w) to proxy server
+        
+        Args:
+            force: If True, forces send even if values unchanged
+        """
+        if not self.sock:
+            raise Exception("Not connected to proxy server")
+        
+        # Send as JSON for simplicity
+        cmd = {
+            'x': self.x,
+            'y': self.y,
+            'w': self.w,
+            'force': force
+        }
+        msg = json.dumps(cmd) + '\n'
+        self.sock.sendall(msg.encode('utf-8'))
+    
+    def set_velocity(self, velocity, force=False):
+        """Set velocity from dictionary and send command
+        
+        Args:
+            velocity: Dictionary with keys 'x', 'y', 'w' (values -1.0 to 1.0)
+            force: If True, bypasses cache and forces send
+        """
+        # Update internal state with rounding
+        self.x = round(velocity.get('x', 0.0) / self.resolution) * self.resolution
+        self.y = round(velocity.get('y', 0.0) / self.resolution) * self.resolution
+        self.w = round(velocity.get('w', 0.0) / self.resolution) * self.resolution
+        
+        self.send(force=force)
+    
+    def stop(self):
+        """Stop all motors"""
+        self.x = 0.0
+        self.y = 0.0
+        self.w = 0.0
+        self.send(force=True)
+
+class MecanumClientAuto:
+    """Auto-fallback client: tries socket proxy first, then direct BLE"""
+    
+    def __init__(self, socket_client=None, ble_client=None):
+        self.socket_client = socket_client or MecanumSocketClient()
+        self.ble_client = ble_client or MecanumBLEClient()
+        self.active_client = None
+    
+    def connect(self):
+        """Try socket proxy first, fallback to direct BLE"""
+        try:
+            self.socket_client.connect()
+            self.active_client = self.socket_client
+            print("✓ Using proxy connection")
+        except Exception as e:
+            print(f"✗ Proxy unavailable ({e}), connecting directly to BLE...")
+            self.ble_client.connect()
+            self.active_client = self.ble_client
+    
+    def disconnect(self):
+        """Disconnect from active client"""
+        if self.active_client:
+            self.active_client.disconnect()
+    
+    def set_velocity(self, velocity, force=False):
+        """Send velocity command through active client"""
+        if self.active_client:
+            self.active_client.set_velocity(velocity, force)
+    
+    def stop(self):
+        """Stop all motors"""
+        if self.active_client:
+            self.active_client.stop()
+
 if __name__ == "__main__":
     import combined_input as inp
     import time
+    import threading
     
-    print("Mecanum BLE Manual Control Demo")
-    print("================================\n")
+    print("Mecanum BLE Hybrid Control Server")
+    print("==================================\n")
     
+    # Shared state for socket client connection
+    current_client = None
+    client_lock = threading.Lock()
+    
+    def socket_server_thread(port=5000):
+        """Background thread that accepts socket connections"""
+        global current_client
+        
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('localhost', port))
+        server.listen(1)
+        print(f"Socket server listening on localhost:{port}")
+        print("Waiting for connections...\n")
+        
+        try:
+            while True:
+                client_sock, addr = server.accept()
+                with client_lock:
+                    current_client = client_sock
+                print(f"✓ Client connected from {addr} - Switching to REMOTE CONTROL")
+                
+                try:
+                    # Keep connection alive until client disconnects
+                    while True:
+                        data = client_sock.recv(1)
+                        if not data:
+                            break
+                except:
+                    pass
+                finally:
+                    with client_lock:
+                        current_client = None
+                    client_sock.close()
+                    print(f"✗ Client disconnected - Switching to MANUAL CONTROL")
+        finally:
+            server.close()
+    
+    def read_socket_command():
+        """Read one JSON command from current socket client"""
+        with client_lock:
+            if not current_client:
+                return None
+            sock = current_client
+        
+        try:
+            # Read until newline
+            buffer = b''
+            while b'\n' not in buffer:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    return None
+                buffer += chunk
+            
+            # Parse JSON
+            line = buffer.split(b'\n')[0]
+            line = "{" + line.decode('utf-8').split('{',1)[1]  # Ensure valid JSON
+            cmd = json.loads(line)
+            return {
+                'x': cmd.get('x', 0.0),
+                'y': cmd.get('y', 0.0),
+                'w': cmd.get('w', 0.0)
+            }
+        except:
+            return None
+    
+    # Start socket server in background
+    server_thread = threading.Thread(target=socket_server_thread, daemon=True)
+    server_thread.start()
+    
+    # Connect to BLE device
     car = MecanumBLEClient()
     car.connect()
     
     try:
-        print("Control active! Use WASD/gamepad to control.")
+        print("Manual control active! Use WASD/gamepad to control.")
         print("  W/S or Left Stick Y: Forward/Backward (X-axis)")
         print("  A/D or Left Stick X: Strafe Left/Right (Y-axis)")
         print("  Q/E or Right Stick X: Rotate (W-axis)")
         print("  C: Full speed mode")
-        print("  Ctrl+C: Exit\n")
+        print("\n")
         
         while True:
-            # Send velocity
-            car.set_velocity(get_user_cmd())
+            # Check if we have a socket client
+            with client_lock:
+                has_client = current_client is not None
+            
+            if has_client:
+                # Remote control mode - read from socket
+                cmd = read_socket_command()
+                if cmd is None:
+                    # Connection lost or error - will be handled by server thread
+                    time.sleep(0.02)
+                    continue
+            else:
+                # Manual control mode - read from keyboard/gamepad
+                cmd = get_user_cmd()
+            
+            # Send velocity command
+            car.set_velocity(cmd)
             
             time.sleep(0.02)  # update rate
             

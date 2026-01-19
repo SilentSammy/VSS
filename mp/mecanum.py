@@ -129,10 +129,14 @@ class MecanumCar:
     
     def _update_motors(self):
         """Apply mecanum kinematics to calculate and set motor speeds."""
-        fl = self._x + self._y + self._w
-        fr = self._x - self._y - self._w
-        bl = self._x - self._y + self._w
-        br = self._x + self._y - self._w
+        # Right-handed coordinate system:
+        # +x is forward
+        # +y is left
+        # +w is counter-clockwise rotation
+        fl = self._x - self._y - self._w
+        fr = self._x + self._y + self._w
+        bl = self._x + self._y - self._w
+        br = self._x - self._y + self._w
         
         # Normalize if any value exceeds ±1
         max_val = max(abs(fl), abs(fr), abs(bl), abs(br))

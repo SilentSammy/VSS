@@ -208,8 +208,8 @@ class GamePlotter2D:
     def __init__(self, board_config, figsize=(8, 6),
                  ball_color='orange', ball_radius=0.01,
                  player_color='blue', player_alpha=0.7, player_length=0.02, player_width=0.015,
-                 text_color='white', text_size=7):
-        """Initialize 2D plotter.
+                 text_color='white', text_size=7, on_click=None):
+        """Initialize plotter settings (does not create plot window).
         
         Args:
             board_config: BoardConfig instance for field dimensions
@@ -222,15 +222,15 @@ class GamePlotter2D:
             player_width: Player triangle base width in meters
             text_color: Player ID text color
             text_size: Player ID text font size
+            on_click: Optional callback function(x, y) called when board is clicked
         """
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Rectangle
-        import cv2
-        import os
-        
+        # Store configuration
         self.board_config = board_config
-        self.field_width, self.field_height = board_config.get_board_dimensions()
-        print_width, print_height = board_config.get_print_dimensions()
+        self.figsize = figsize
+        
+        # Click handling
+        self.on_click = on_click
+        self.last_click = None  # (x, y) in board coordinates
         
         # Appearance settings
         self.ball_color = ball_color
@@ -242,8 +242,26 @@ class GamePlotter2D:
         self.text_color = text_color
         self.text_size = text_size
         
+        # Plot objects (created in start())
+        self.fig = None
+        self.ax = None
+        self.background = None
+        self.ball_artists = []
+        self.player_artists = []
+        self.player_text_artists = []
+    
+    def start(self):
+        """Create and display the plot window."""
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        import cv2
+        import os
+        
+        self.field_width, self.field_height = self.board_config.get_board_dimensions()
+        print_width, print_height = self.board_config.get_print_dimensions()
+        
         # Create figure and axis
-        self.fig, self.ax = plt.subplots(figsize=figsize)
+        self.fig, self.ax = plt.subplots(figsize=self.figsize)
         self.fig.canvas.manager.set_window_title('VSS Game State')
         self.ax.set_aspect('equal', adjustable='box')
         self.ax.set_xlabel('X (m)')
@@ -252,8 +270,8 @@ class GamePlotter2D:
         self.ax.grid(True, alpha=0.3)
         
         # Load and display board image as background
-        if os.path.exists(board_config.image_path):
-            img = cv2.imread(board_config.image_path)
+        if os.path.exists(self.board_config.image_path):
+            img = cv2.imread(self.board_config.image_path)
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
             # Display image centered, scaled to print dimensions
@@ -273,7 +291,7 @@ class GamePlotter2D:
         self.ax.set_xlim(-print_width/2 - margin, print_width/2 + margin)
         self.ax.set_ylim(-print_height/2 - margin, print_height/2 + margin)
         
-        # Initialize plot artists (animated=True for blitting)
+        # Initialize plot artists lists
         self.ball_artists = []
         self.player_artists = []
         self.player_text_artists = []
@@ -288,7 +306,10 @@ class GamePlotter2D:
         # Connect resize event to recapture background
         self.fig.canvas.mpl_connect('resize_event', self._on_resize)
         
-        # Trigger resize to fix initial aspect ratio
+        # Connect click event for waypoint selection
+        self.fig.canvas.mpl_connect('button_press_event', self._on_mouse_click)
+        
+        # Trigger initial resize to ensure proper sizing
         self._on_resize(None)
     
     def _on_resize(self, event):
@@ -296,6 +317,20 @@ class GamePlotter2D:
         self.ax.set_aspect('equal', adjustable='box')
         self.fig.canvas.draw()
         self.background = self.fig.canvas.copy_from_bbox(self.ax.bbox)
+    
+    def _on_mouse_click(self, event):
+        """Handle mouse click on plot."""
+        # Only process left clicks inside the axes
+        if event.button == 1 and event.inaxes == self.ax:
+            x, y = event.xdata, event.ydata
+            self.last_click = (x, y)
+            
+            # Print click location
+            print(f"Board clicked at: ({x:.3f}, {y:.3f}) m")
+            
+            # Call user callback if provided
+            if self.on_click is not None:
+                self.on_click(x, y)
     
     def update(self, game_state):
         """Update plot with new game state using blitting.
@@ -399,16 +434,29 @@ game_detector = GameDetector(
     ball_detector=BallDetector(),
     ball_height=0.02,
     aruco_detector=ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)),
-    player_height=0.04 if is_small_setup else 0.08,
+    player_height=0.04 if is_small_setup else 0.1,
 )
+
+# Setup GamePlotter2D
+plotter_small = GamePlotter2D(
+    global_board_config,
+    player_width=0.015,
+    player_length=0.02
+)
+
+plotter_large = GamePlotter2D(
+    global_board_config,
+    player_width=0.05,
+    player_length=0.075
+)
+
+global_plotter = plotter_large
+
 if __name__ == "__main__":
     
     # Setup 2D plotter
-    plotter = GamePlotter2D(
-        global_board_config,
-        player_width=0.015 if is_small_setup else 0.05,
-        player_length=0.02 if is_small_setup else 0.075
-    )
+
+    global_plotter.start()  # Create plot window
     
     try:
         while True:
@@ -426,7 +474,7 @@ if __name__ == "__main__":
             game_state = game_detector.detect(frame, drawing_frame)
             
             # Update 2D plot
-            plotter.update(game_state)
+            global_plotter.update(game_state)
             
             # Annotate camera view with ball positions
             for i, ball in enumerate(game_state.balls):
@@ -443,6 +491,6 @@ if __name__ == "__main__":
             cv2.imshow("Game Detection", drawing_frame)
             cv2.setWindowProperty("Game Detection", cv2.WND_PROP_TOPMOST, 1)
     finally:
-        plotter.close()
+        global_plotter.close()
         cv2.destroyAllWindows()
 

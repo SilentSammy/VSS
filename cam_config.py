@@ -94,9 +94,8 @@ def _get_sim_image():
     img = cv2.flip(img, 0)
     return img
 
-def _get_droidcam_image_2(rotation = None):
-    ip = "http://192.168.137.128:4747/video"
-    ip = "http://10.22.209.148:4747/video"
+def _get_droidcam_image(rotation = None):
+    ip = "http://192.168.1.9:4747/video"
     _get_droidcam_image.cap = getattr(_get_droidcam_image, 'cap', None)
     if _get_droidcam_image.cap is None:
         _get_droidcam_image.cap = cv2.VideoCapture(ip)
@@ -108,7 +107,7 @@ def _get_droidcam_image_2(rotation = None):
         frame = cv2.rotate(frame, rotation)
     return frame
 
-def _get_droidcam_image(rotation = None):
+def _get_droidcam_image_1(rotation = None):
     """Get frame from DroidCam using background thread to avoid HTTP blocking."""
     ip = "http://192.168.137.128:4747/video"
     ip = "http://10.22.209.148:4747/video"
