@@ -208,7 +208,7 @@ class GamePlotter2D:
     def __init__(self, board_config, figsize=(8, 6),
                  ball_color='orange', ball_radius=0.01,
                  player_color='blue', player_alpha=0.7, player_length=0.02, player_width=0.015,
-                 text_color='white', text_size=7, on_click=None):
+                 text_color='white', text_size=7, on_click=None, margin=0.2):
         """Initialize plotter settings (does not create plot window).
         
         Args:
@@ -225,6 +225,7 @@ class GamePlotter2D:
             on_click: Optional callback function(x, y) called when board is clicked
         """
         # Store configuration
+        self.margin = margin
         self.board_config = board_config
         self.figsize = figsize
         
@@ -287,7 +288,7 @@ class GamePlotter2D:
         self.ax.add_patch(paper_rect)
         
         # Set limits with margin
-        margin = 0.05
+        margin = self.margin
         self.ax.set_xlim(-print_width/2 - margin, print_width/2 + margin)
         self.ax.set_ylim(-print_height/2 - margin, print_height/2 + margin)
         

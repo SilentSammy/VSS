@@ -157,12 +157,15 @@ def _get_droidcam_image_1(rotation = None):
         frame = cv2.rotate(frame, rotation)
     return frame
 
-def _get_usb_image():
-    _get_usb_image.cap = getattr(_get_usb_image, 'cap', None)
-    if _get_usb_image.cap is None:
-        _get_usb_image.cap = cv2.VideoCapture(0)
+def _get_webcam_image():
+    _get_webcam_image.cap = getattr(_get_webcam_image, 'cap', None)
+    if _get_webcam_image.cap is None:
+        _get_webcam_image.cap = cv2.VideoCapture(0)
+        # If camera 0 fails, try camera 1
+        if not _get_webcam_image.cap.isOpened():
+            _get_webcam_image.cap = cv2.VideoCapture(1)
     
-    ret, frame = _get_usb_image.cap.read()
+    ret, frame = _get_webcam_image.cap.read()
     if not ret:
         return None
     return frame
@@ -183,17 +186,17 @@ droidcam = Camera(
     image_shape_hw=(480, 640)  # height, width before rotation
 )
 
-usb_cam = Camera(
+webcam = Camera(
     K=np.array([[923.31561344, 0., 339.54573078], [0., 931.19467981, 233.51319736], [0., 0., 1.]], dtype=np.float32),
     # D=np.array([2.59441499e-01, 8.24321474e+00, -8.65629777e+01, 2.89584642e+02], dtype=np.float32),
     D=np.zeros(5),
-    frame_getter=_get_usb_image
+    frame_getter=_get_webcam_image
 )
 
 # Last assignment gets used as global_cam
 global_cam = sim_cam
 global_cam = droidcam
-global_cam = usb_cam
+global_cam = webcam
 
 if __name__ == "__main__":
     while True:

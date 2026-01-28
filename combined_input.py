@@ -1,8 +1,15 @@
-from pynput import keyboard
 import inputs
 import importlib
 import threading
 import time
+
+# Try to import keyboard - may fail over SSH without X display
+try:
+    from pynput import keyboard
+    KEYBOARD_AVAILABLE = True
+except ImportError as e:
+    print(f"Keyboard support disabled: {e}")
+    KEYBOARD_AVAILABLE = False
 
 # ——————————————————————————————————————————————————————————————
 # Global gamepad state
@@ -53,6 +60,9 @@ _ABS_TO_NAME = {
 
 # Track disconnect status to throttle warnings
 _warned_disconnected = False
+
+# Global configuration
+INVERT_Y_AXIS = False  # Set to True to invert Y-axis controls (LY, RY)
 
 # ——————————————————————————————————————————————————————————————
 # Internal helpers
@@ -163,30 +173,31 @@ def _gamepad_event_loop():
 _listener = threading.Thread(target=_gamepad_event_loop, daemon=True)
 _listener.start()
 
-# Start the keyboard listener
-def _on_press(key):
-    key_repr = key if isinstance(key, str) else key.char if hasattr(key, 'char') else str(key)
-    # Filter out None values before adding to sets
-    if key_repr is None:
-        return
-    # Only mark as just pressed if it wasn't already noted as down.
-    if key_repr not in pressed_keys:
-        just_pressed_keys.add(key_repr)
-    pressed_keys.add(key_repr)
-    # Toggle state if applicable.
-    if key_repr in toggles:
-        toggles[key_repr] = not toggles[key_repr]
+# Start the keyboard listener (only if available)
+if KEYBOARD_AVAILABLE:
+    def _on_press(key):
+        key_repr = key if isinstance(key, str) else key.char if hasattr(key, 'char') else str(key)
+        # Filter out None values before adding to sets
+        if key_repr is None:
+            return
+        # Only mark as just pressed if it wasn't already noted as down.
+        if key_repr not in pressed_keys:
+            just_pressed_keys.add(key_repr)
+        pressed_keys.add(key_repr)
+        # Toggle state if applicable.
+        if key_repr in toggles:
+            toggles[key_repr] = not toggles[key_repr]
 
-def _on_release(key):
-    key_repr = key if isinstance(key, str) else key.char if hasattr(key, 'char') else str(key)
-    # Filter out None values
-    if key_repr is None:
-        return
-    pressed_keys.discard(key_repr)
-    # Mark the key as just released for falling edge detection.
-    just_released_keys.add(key_repr)
+    def _on_release(key):
+        key_repr = key if isinstance(key, str) else key.char if hasattr(key, 'char') else str(key)
+        # Filter out None values
+        if key_repr is None:
+            return
+        pressed_keys.discard(key_repr)
+        # Mark the key as just released for falling edge detection.
+        just_released_keys.add(key_repr)
 
-keyboard.Listener(on_press=_on_press, on_release=_on_release).start()
+    keyboard.Listener(on_press=_on_press, on_release=_on_release).start()
 
 # ——————————————————————————————————————————————————————————————
 # Public API (unified for both gamepad and keyboard)
@@ -244,13 +255,18 @@ def get_axis(axis_name: str, normalize: bool = True) -> float:
     # sticks: -32768..32767 -> -1.0..1.0
     if axis_name in ("LX", "LY", "RX", "RY"):
         normalized = val / (32767.0 if val >= 0 else 32768.0)
+        # Apply Y-axis inversion if enabled
+        if INVERT_Y_AXIS and axis_name in ("LY", "RY"):
+            normalized = -normalized
         return round(normalized, 1)
     # triggers: 0..255 or 0..1023 -> 0.0..1.0
     if axis_name in ("LT", "RT"):
         maxv = 255 if val <= 255 else 1023
         return val / maxv
     # D-pad: already -1,0,1
-    if axis_name in ("DPAD_X", "DPAD_Y"):
+    if axis_name == "DPAD_Y":
+        return -val  # Inverted to match expected behavior
+    if axis_name == "DPAD_X":
         return val
     return val
 
@@ -270,12 +286,10 @@ def get_bipolar_ctrl(high_key=None, low_key=None, high_game=None, low_game=None,
     result = game_in + key_in
     return float(max(-1, min(1, result)))
 
-if __name__ == '__main__':
-    while True:
-        # print(get_bipolar_ctrl('w', 's', 'DPAD_UP', 'DPAD_DOWN'))
-        # print(get_bipolar_ctrl('w', 's', 'RT', 'LT'))
-        print(get_bipolar_ctrl('w', 's', 'LY'))
-        time.sleep(0.1)
+# if __name__ == '__main__':
+#     while True:
+#         print(get_bipolar_ctrl('w', 's', 'RY'))
+#         time.sleep(0.1)
 
 # Example usage
 if __name__ == '__main__':

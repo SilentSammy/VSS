@@ -27,7 +27,7 @@ def stop_client():
         client.disconnect()
         client = None
 
-def rotate_commands(x_ref, y_ref, angle, y_scale=1.3):
+def rotate_commands(x_ref, y_ref, angle, y_scale=1):
     """Rotate commands from one frame to robot frame accounting for orientation.
     
     Args:

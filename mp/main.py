@@ -5,6 +5,10 @@ import ble_server
 from mecanum import MecanumCar
 
 car = MecanumCar()
+mfl = car.motor_fl
+mfr = car.motor_fr
+mbl = car.motor_bl
+mbr = car.motor_br
 
 def test():
     """Test each motor individually: forward, backward, stop."""
